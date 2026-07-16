@@ -204,6 +204,7 @@
           <p>Left join: every main row keeps its data and gains the picked lookup columns from the <em>first</em> matching lookup row; no match leaves them blank. Join happens <em>before</em> grouping.</p>
           <h3>Cross-tab &amp; charts</h3>
           <p>Cross-tab spreads one value column across a column's distinct values (max 40). Charts and the color scale read the final result table; the color scale is preview-only and not written to the .xlsx.</p>
+          <p>Chart extras (all preview-only): bars can be vertical or horizontal; <em>Axis min/max</em> pins the value axis range (blank = auto, ignored if min &ge; max); <em>Unit</em> shows ticks and tooltips as thousands (K), millions (M) or with a % suffix. <em>Series by</em> splits bars/lines into one colored series per value of a column (top 12 by total, the rest fold into &ldquo;Other&rdquo;), and <em>Stacked</em> stacks those series instead of placing them side by side.</p>
           <h3>Display formats</h3>
           <p>Per column: <code>number</code> (thousands separators), <code>percent</code> (a value of 87.5 shows as 87.5% and becomes a true Excel percent in the download), or <code>text</code>, each with a decimals choice.</p>
           <h3>Presets</h3>
@@ -317,7 +318,8 @@
           <label for="vizChartType">Chart:</label>
           <select id="vizChartType">
             <option value="none">None</option>
-            <option value="bar">Bar (top N)</option>
+            <option value="bar">Bar &mdash; vertical (column)</option>
+            <option value="barh">Bar &mdash; horizontal</option>
             <option value="pie">Pie (share of total)</option>
             <option value="line">Line (over X)</option>
           </select>
@@ -327,6 +329,22 @@
           <select id="vizValueCol"></select>
           <label for="vizTopN" style="margin-left:14px">Top N (bar):</label>
           <input type="number" id="vizTopN" min="1" step="1" value="10" style="width:60px" />
+        </div>
+        <div class="configRow">
+          <label for="vizSeriesCol">Series by:</label>
+          <select id="vizSeriesCol"></select>
+          <label><input type="checkbox" id="vizStacked" /> Stacked</label>
+          <label for="vizAxisMin" style="margin-left:14px">Axis min:</label>
+          <input type="number" id="vizAxisMin" placeholder="auto" style="width:80px" />
+          <label for="vizAxisMax">Axis max:</label>
+          <input type="number" id="vizAxisMax" placeholder="auto" style="width:80px" />
+          <label for="vizAxisUnit" style="margin-left:14px">Unit:</label>
+          <select id="vizAxisUnit">
+            <option value="none">None</option>
+            <option value="K">K (thousands)</option>
+            <option value="M">M (millions)</option>
+            <option value="%">%</option>
+          </select>
         </div>
         <div class="configRow">
           <span class="muted">Exclude from the chart:</span>

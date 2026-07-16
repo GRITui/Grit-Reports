@@ -28,6 +28,11 @@ const vizChartTypeSelect = document.getElementById('vizChartType');
 const vizXColSelect = document.getElementById('vizXCol');
 const vizValueColSelect = document.getElementById('vizValueCol');
 const vizTopNInput = document.getElementById('vizTopN');
+const vizSeriesColSelect = document.getElementById('vizSeriesCol');
+const vizStackedCb = document.getElementById('vizStacked');
+const vizAxisMinInput = document.getElementById('vizAxisMin');
+const vizAxisMaxInput = document.getElementById('vizAxisMax');
+const vizAxisUnitSelect = document.getElementById('vizAxisUnit');
 const colorScaleEnabledCb = document.getElementById('colorScaleEnabled');
 const colorScaleColSelect = document.getElementById('colorScaleCol');
 const chartArea = document.getElementById('chartArea');
@@ -680,6 +685,7 @@ function updateSelectors() {
   fillSelect(pivotValueColSelect, numericOutputNames(), '(none)');
   fillSelect(vizXColSelect, outputColumnNames(), '(none)');
   fillSelect(vizValueColSelect, numericOutputNames(), '(none)');
+  fillSelect(vizSeriesColSelect, outputColumnNames(), '(none)');
   fillSelect(colorScaleColSelect, numericOutputNames(), '(none)');
   for (const sel of document.querySelectorAll('.fmtCol')) {
     fillSelect(sel, outCols);
@@ -1264,20 +1270,31 @@ function applyJoin(rows) {
 
 /* ---------- charts & conditional formatting (viz) ---------- */
 
-const VIZ_PALETTE = ['#2d6cdf', '#3a7d44', '#d98c2b', '#a15cc4', '#c94f4f', '#3aa0a0', '#c9a53a', '#6b7bd6'];
+// 13 colors so the series cap's worst case (12 kept + "Other") never repeats a color
+const VIZ_PALETTE = [
+  '#2d6cdf', '#3a7d44', '#d98c2b', '#a15cc4', '#c94f4f', '#3aa0a0', '#c9a53a', '#6b7bd6',
+  '#d46a9e', '#8ab84a', '#b08968', '#9e9e9e', '#54b8e0',
+];
 
 let vizChartInstance = null;
 
 function readVizConfig() {
   const type = vizChartTypeSelect.value;
+  const axisMinRaw = vizAxisMinInput.value.trim();
+  const axisMaxRaw = vizAxisMaxInput.value.trim();
   return {
     chart: {
-      type: ['bar', 'pie', 'line'].includes(type) ? type : 'none',
+      type: ['bar', 'barh', 'pie', 'line'].includes(type) ? type : 'none',
       xCol: vizXColSelect.value || '',
       valueCol: vizValueColSelect.value || '',
       topN: vizTopNInput.value ? Number(vizTopNInput.value) : 10,
       excludeBlank: document.getElementById('vizExcludeBlank').checked,
       excludeTotals: document.getElementById('vizExcludeTotals').checked,
+      axisMin: axisMinRaw !== '' && !isNaN(Number(axisMinRaw)) ? Number(axisMinRaw) : null,
+      axisMax: axisMaxRaw !== '' && !isNaN(Number(axisMaxRaw)) ? Number(axisMaxRaw) : null,
+      unit: ['K', 'M', '%'].includes(vizAxisUnitSelect.value) ? vizAxisUnitSelect.value : 'none',
+      seriesCol: vizSeriesColSelect.value || '',
+      stacked: vizStackedCb.checked,
     },
     colorScale: {
       enabled: colorScaleEnabledCb.checked,
@@ -1305,20 +1322,30 @@ function renderCharts(rows, cols) {
   if (!rows || rows.length === 0 || cfg.type === 'none' || !cfg.xCol || !cfg.valueCol) return;
   if (!cols.includes(cfg.xCol) || !cols.includes(cfg.valueCol)) return;
 
+  // A series column splits bar/line charts into one dataset per distinct value; pie ignores it.
+  // Series by = the X column is degenerate (one-hot chart), so it is ignored with a note.
+  const seriesCol = cfg.type !== 'pie' && cfg.seriesCol && cfg.seriesCol !== cfg.xCol && cols.includes(cfg.seriesCol)
+    ? cfg.seriesCol : '';
+
   // Chart-only exclusions — the result table and download are untouched
   const before = rows.length;
   if (cfg.excludeBlank) {
-    rows = rows.filter((r) => String(r[cfg.xCol]).trim() !== '');
+    rows = rows.filter((r) =>
+      String(r[cfg.xCol]).trim() !== '' && (!seriesCol || String(r[seriesCol]).trim() !== ''));
   }
   if (cfg.excludeTotals) {
     rows = rows.filter((r) => !TOTAL_ROW_RE.test(String(r[cfg.xCol])));
   }
   const excluded = before - rows.length;
-  document.getElementById('chartNote').textContent =
-    excluded > 0 ? `${excluded} row(s) excluded from the chart (blank/total). The table and download still include them.` : '';
+  const notes = [];
+  if (excluded > 0) notes.push(`${excluded} row(s) excluded from the chart (blank/total). The table and download still include them.`);
+  if (cfg.type !== 'pie' && cfg.seriesCol && cfg.seriesCol === cfg.xCol) notes.push('"Series by" is ignored because it is the same column as the X axis.');
+  document.getElementById('chartNote').textContent = notes.join(' ');
   if (rows.length === 0) return;
 
-  let labels, values;
+  const horizontal = cfg.type === 'barh';
+
+  let labels, datasets;
   if (cfg.type === 'pie') {
     const totals = new Map();
     for (const row of rows) {
@@ -1326,48 +1353,156 @@ function renderCharts(rows, cols) {
       totals.set(k, (totals.get(k) || 0) + (Number(row[cfg.valueCol]) || 0));
     }
     labels = [...totals.keys()];
-    values = [...totals.values()];
+    const colors = labels.map((_, i) => VIZ_PALETTE[i % VIZ_PALETTE.length]);
+    datasets = [{
+      label: cfg.valueCol,
+      data: [...totals.values()],
+      backgroundColor: colors,
+      borderColor: colors,
+    }];
+  } else if (seriesCol) {
+    // Sum per (x value, series value); series colored by VIZ_PALETTE in first-seen order
+    const xTotals = new Map();      // x -> total across all series (drives Top N ranking)
+    const seriesTotals = new Map(); // series -> total (drives the 12-series cap)
+    const cells = new Map();        // x -> Map(series -> sum)
+    for (const row of rows) {
+      const x = String(row[cfg.xCol]);
+      const sRaw = String(row[seriesCol]);
+      // Blank series values (defval:'' / unmatched join rows) get a visible legend label
+      const s = sRaw.trim() === '' ? '(blank)' : sRaw;
+      const v = Number(row[cfg.valueCol]) || 0;
+      xTotals.set(x, (xTotals.get(x) || 0) + v);
+      seriesTotals.set(s, (seriesTotals.get(s) || 0) + v);
+      if (!cells.has(x)) cells.set(x, new Map());
+      const cell = cells.get(x);
+      cell.set(s, (cell.get(s) || 0) + v);
+    }
+
+    // Cap at 12 distinct series: keep the 12 largest by total, fold the rest into "Other"
+    const MAX_SERIES = 12;
+    let seriesNames = [...seriesTotals.keys()];
+    if (seriesNames.length > MAX_SERIES) {
+      const keep = new Set(
+        [...seriesTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_SERIES).map((e) => e[0])
+      );
+      for (const cell of cells.values()) {
+        let other = 0;
+        for (const [s, v] of [...cell.entries()]) {
+          if (!keep.has(s)) { other += v; cell.delete(s); }
+        }
+        if (other !== 0) cell.set('Other', (cell.get('Other') || 0) + other);
+      }
+      // Set dedup: if a real series named "Other" was kept, the folded remainder is merged
+      // into it (line above) and it must appear only once here — never as two datasets.
+      seriesNames = [...new Set([...seriesNames.filter((s) => keep.has(s)), 'Other'])];
+    }
+
+    if (cfg.type === 'line') {
+      labels = [...xTotals.keys()].sort((a, b) => a.localeCompare(b));
+    } else {
+      // Top N categories ranked by TOTAL across all series
+      const n = cfg.topN && cfg.topN > 0 ? Math.floor(cfg.topN) : 10;
+      labels = [...xTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map((e) => e[0]);
+    }
+    datasets = seriesNames.map((s, i) => {
+      const color = VIZ_PALETTE[i % VIZ_PALETTE.length];
+      return {
+        label: s,
+        data: labels.map((x) => (cells.get(x) && cells.get(x).get(s)) || 0),
+        backgroundColor: color,
+        borderColor: color,
+        fill: false,
+        tension: 0.25,
+      };
+    });
   } else if (cfg.type === 'line') {
     const sorted = [...rows].sort((a, b) => String(a[cfg.xCol]).localeCompare(String(b[cfg.xCol])));
     labels = sorted.map((r) => String(r[cfg.xCol]));
-    values = sorted.map((r) => Number(r[cfg.valueCol]) || 0);
+    datasets = [{
+      label: cfg.valueCol,
+      data: sorted.map((r) => Number(r[cfg.valueCol]) || 0),
+      backgroundColor: '#2d6cdf',
+      borderColor: '#2d6cdf',
+      fill: false,
+      tension: 0.25,
+    }];
   } else {
     const n = cfg.topN && cfg.topN > 0 ? Math.floor(cfg.topN) : 10;
     const sorted = [...rows].sort((a, b) => (Number(b[cfg.valueCol]) || 0) - (Number(a[cfg.valueCol]) || 0));
     const top = sorted.slice(0, n);
     labels = top.map((r) => String(r[cfg.xCol]));
-    values = top.map((r) => Number(r[cfg.valueCol]) || 0);
+    const colors = labels.map((_, i) => VIZ_PALETTE[i % VIZ_PALETTE.length]);
+    datasets = [{
+      label: cfg.valueCol,
+      data: top.map((r) => Number(r[cfg.valueCol]) || 0),
+      backgroundColor: colors,
+      borderColor: colors,
+      fill: false,
+      tension: 0.25,
+    }];
   }
   if (labels.length === 0) return;
 
-  const colors = labels.map((_, i) => VIZ_PALETTE[i % VIZ_PALETTE.length]);
   const textColor = '#bbb';
   const gridColor = '#3a3a3a';
+  const unit = cfg.unit;
+
+  let scales = {};
+  if (cfg.type !== 'pie') {
+    // The value axis is y for vertical bars/line, x for horizontal bars
+    const valueAxis = horizontal ? 'x' : 'y';
+    const catAxis = horizontal ? 'y' : 'x';
+    const stacked = !!seriesCol && cfg.stacked;
+    // Ignore min/max if min >= max — fall back to auto rather than a broken axis
+    let axisMin = cfg.axisMin;
+    let axisMax = cfg.axisMax;
+    if (axisMin !== null && axisMax !== null && axisMin >= axisMax) {
+      axisMin = null;
+      axisMax = null;
+    }
+    scales[catAxis] = { stacked, ticks: { color: textColor }, grid: { color: gridColor } };
+    scales[valueAxis] = {
+      stacked,
+      ticks: { color: textColor, callback: (v) => formatVizValue(v, unit) },
+      grid: { color: gridColor },
+    };
+    if (axisMin !== null) scales[valueAxis].min = axisMin;
+    if (axisMax !== null) scales[valueAxis].max = axisMax;
+  }
 
   chartArea.hidden = false;
   vizChartInstance = new Chart(vizCanvas, {
     type: cfg.type === 'pie' ? 'pie' : cfg.type === 'line' ? 'line' : 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: cfg.valueCol,
-        data: values,
-        backgroundColor: cfg.type === 'line' ? '#2d6cdf' : colors,
-        borderColor: cfg.type === 'line' ? '#2d6cdf' : colors,
-        fill: false,
-        tension: 0.25,
-      }],
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: cfg.type === 'pie', labels: { color: textColor } } },
-      scales: cfg.type === 'pie' ? {} : {
-        x: { ticks: { color: textColor }, grid: { color: gridColor } },
-        y: { ticks: { color: textColor }, grid: { color: gridColor } },
+      indexAxis: horizontal ? 'y' : 'x',
+      plugins: {
+        legend: { display: cfg.type === 'pie' || datasets.length > 1, labels: { color: textColor } },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const v = cfg.type === 'pie' ? ctx.parsed : (horizontal ? ctx.parsed.x : ctx.parsed.y);
+              return `${ctx.dataset.label}: ${formatVizValue(v, unit)}`;
+            },
+          },
+        },
       },
+      scales,
     },
   });
+}
+
+// Formats a chart value for axis ticks and tooltips per the Unit select:
+// K divides by 1e3, M by 1e6, % appends "%" without scaling. Preview-only.
+function formatVizValue(v, unit) {
+  if (typeof v !== 'number' || isNaN(v)) return String(v);
+  const opts = { maximumFractionDigits: 2 };
+  if (unit === 'K') return (v / 1e3).toLocaleString(undefined, opts) + 'K';
+  if (unit === 'M') return (v / 1e6).toLocaleString(undefined, opts) + 'M';
+  if (unit === '%') return v.toLocaleString(undefined, opts) + '%';
+  return v.toLocaleString(undefined, opts);
 }
 
 // Low -> high sequential interpolation between the shared dark-theme color-scale endpoints
@@ -1502,7 +1637,7 @@ function applyConfig(cfg) {
   pivotValueColSelect.value = pivotCfg.valueCol && numericOutputNames().includes(pivotCfg.valueCol) ? pivotCfg.valueCol : '';
   const vizCfg = cfg.viz || {};
   const vc = vizCfg.chart || {};
-  vizChartTypeSelect.value = ['bar', 'pie', 'line'].includes(vc.type) ? vc.type : 'none';
+  vizChartTypeSelect.value = ['bar', 'barh', 'pie', 'line'].includes(vc.type) ? vc.type : 'none';
   vizXColSelect.value = '';
   if (vc.xCol && outputColumnNames().includes(vc.xCol)) vizXColSelect.value = vc.xCol;
   vizValueColSelect.value = '';
@@ -1510,6 +1645,13 @@ function applyConfig(cfg) {
   vizTopNInput.value = vc.topN ? String(vc.topN) : '';
   document.getElementById('vizExcludeBlank').checked = !!vc.excludeBlank;
   document.getElementById('vizExcludeTotals').checked = !!vc.excludeTotals;
+  // Old presets lack these fields — default to auto range, no unit, no series, unstacked
+  vizAxisMinInput.value = typeof vc.axisMin === 'number' && !isNaN(vc.axisMin) ? String(vc.axisMin) : '';
+  vizAxisMaxInput.value = typeof vc.axisMax === 'number' && !isNaN(vc.axisMax) ? String(vc.axisMax) : '';
+  vizAxisUnitSelect.value = ['K', 'M', '%'].includes(vc.unit) ? vc.unit : 'none';
+  vizSeriesColSelect.value = '';
+  if (vc.seriesCol && outputColumnNames().includes(vc.seriesCol)) vizSeriesColSelect.value = vc.seriesCol;
+  vizStackedCb.checked = !!vc.stacked;
   const csCfg = vizCfg.colorScale || {};
   colorScaleEnabledCb.checked = !!csCfg.enabled;
   colorScaleColSelect.value = '';
@@ -1987,6 +2129,11 @@ vizChartTypeSelect.addEventListener('change', resetResults);
 vizXColSelect.addEventListener('change', resetResults);
 vizValueColSelect.addEventListener('change', resetResults);
 vizTopNInput.addEventListener('change', resetResults);
+vizSeriesColSelect.addEventListener('change', resetResults);
+vizStackedCb.addEventListener('change', resetResults);
+vizAxisMinInput.addEventListener('change', resetResults);
+vizAxisMaxInput.addEventListener('change', resetResults);
+vizAxisUnitSelect.addEventListener('change', resetResults);
 document.getElementById('vizExcludeBlank').addEventListener('change', resetResults);
 document.getElementById('vizExcludeTotals').addEventListener('change', resetResults);
 document.getElementById('totalRowEnabled').addEventListener('change', resetResults);
