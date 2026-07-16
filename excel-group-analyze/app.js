@@ -11,6 +11,8 @@ const sheetSelect = document.getElementById('sheetSelect');
 const configSection = document.getElementById('configSection');
 const groupByBox = document.getElementById('groupByBox');
 const metricsBox = document.getElementById('metricsBox');
+const condMetricList = document.getElementById('condMetricList');
+const addCondMetricBtn = document.getElementById('addCondMetricBtn');
 const derivedList = document.getElementById('derivedList');
 const addDerivedBtn = document.getElementById('addDerivedBtn');
 const labelList = document.getElementById('labelList');
@@ -265,6 +267,7 @@ function loadSheet() {
 function buildColumnPickers() {
   groupByBox.innerHTML = '';
   metricsBox.innerHTML = '';
+  condMetricList.innerHTML = '';
   derivedList.innerHTML = '';
   labelList.innerHTML = '';
   filterList.innerHTML = '';
@@ -322,9 +325,15 @@ function setChecked(kind, values) {
   }
 }
 
-function makeSelect(options, value, cls) {
+function makeSelect(options, value, cls, placeholder) {
   const sel = document.createElement('select');
   if (cls) sel.className = cls;
+  if (placeholder) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = placeholder;
+    sel.appendChild(o);
+  }
   for (const opt of options) {
     const o = document.createElement('option');
     o.value = opt;
@@ -332,6 +341,7 @@ function makeSelect(options, value, cls) {
     sel.appendChild(o);
   }
   if (value !== undefined && options.includes(value)) sel.value = value;
+  else if (placeholder) sel.value = '';
   sel.addEventListener('change', resetResults);
   return sel;
 }
@@ -352,6 +362,114 @@ function fillSelect(sel, options, placeholder) {
     sel.appendChild(o);
   }
   sel.value = options.includes(cur) ? cur : (placeholder ? '' : sel.value);
+}
+
+/* --- conditional metrics (SUMIF / COUNTIF), section 4 --- */
+
+const COND_TYPE_LABELS = {
+  sum: 'Sum',
+  count: 'Count',
+  countDistinct: 'Count distinct',
+  avg: 'Average',
+  min: 'Min',
+  max: 'Max',
+};
+
+// "Count" needs no value column — grey it out, matching syncBlankOpValue's pattern for
+// "is blank" / "is not blank" filter rows.
+function syncCondValueCol(typeSel, valueSel) {
+  const isCount = typeSel.value === 'count';
+  valueSel.disabled = isCount;
+  valueSel.style.opacity = isCount ? '0.5' : '';
+}
+
+function addCondMetricBlock(preset) {
+  const block = document.createElement('div');
+  block.className = 'labelBlock';
+
+  const head = document.createElement('div');
+  head.className = 'configRow blockHead';
+
+  const name = document.createElement('input');
+  name.type = 'text';
+  name.placeholder = 'Column name, e.g. Central Sales';
+  name.className = 'cmName';
+  name.value = preset?.name || '';
+  name.addEventListener('input', () => { resetResults(); updateSelectors(); });
+
+  const type = makeSelect(Object.keys(COND_TYPE_LABELS), preset?.type || 'sum', 'cmType');
+  for (const o of type.options) o.textContent = COND_TYPE_LABELS[o.value] || o.value;
+
+  const valueCol = makeSelect(numericColumns, preset?.valueCol, 'cmValueCol', '(choose column)');
+  type.addEventListener('change', () => syncCondValueCol(type, valueCol));
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'small';
+  remove.textContent = 'Remove metric';
+  remove.addEventListener('click', () => { block.remove(); resetResults(); updateSelectors(); });
+
+  head.append(
+    document.createTextNode('Name'), name,
+    document.createTextNode('Type'), type,
+    document.createTextNode('of'), valueCol,
+    remove
+  );
+
+  const conditions = document.createElement('div');
+  conditions.className = 'cmConditions';
+
+  const addCond = document.createElement('button');
+  addCond.type = 'button';
+  addCond.className = 'small';
+  addCond.textContent = '+ Add condition';
+  addCond.addEventListener('click', () => { addCondConditionRow(conditions); resetResults(); });
+
+  block.append(head, conditions, addCond);
+  condMetricList.appendChild(block);
+
+  for (const c of preset?.conditions || []) addCondConditionRow(conditions, c);
+  if (!preset || !(preset.conditions || []).length) addCondConditionRow(conditions);
+
+  syncCondValueCol(type, valueCol);
+}
+
+function addCondConditionRow(container, preset) {
+  const row = document.createElement('div');
+  row.className = 'configRow ccRow';
+
+  const col = makeSelect(columns, preset?.col, 'ccCol');
+  const op = makeSelect(FILTER_OPS, preset?.op || '>=', 'ccOp');
+  const value = document.createElement('input');
+  value.type = 'text';
+  value.className = 'ccVal';
+  value.placeholder = 'value';
+  value.value = preset?.value ?? '';
+  value.addEventListener('input', resetResults);
+  syncBlankOpValue(op, value);
+  op.addEventListener('change', () => syncBlankOpValue(op, value));
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'small';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', () => { row.remove(); resetResults(); });
+
+  row.append(document.createTextNode('where'), col, op, value, remove);
+  container.appendChild(row);
+}
+
+function readCondMetrics() {
+  return [...condMetricList.querySelectorAll('.labelBlock')].map((block) => ({
+    name: block.querySelector('.cmName').value.trim(),
+    type: block.querySelector('.cmType').value,
+    valueCol: block.querySelector('.cmValueCol').value,
+    conditions: [...block.querySelectorAll('.ccRow')].map((row) => ({
+      col: row.querySelector('.ccCol').value,
+      op: row.querySelector('.ccOp').value,
+      value: row.querySelector('.ccVal').value.trim(),
+    })),
+  }));
 }
 
 /* --- calculated columns --- */
@@ -563,16 +681,18 @@ function readFilters() {
 
 /* --- dependent dropdowns --- */
 
-// Numeric columns a rule or formula can draw from: summed data + calculated columns
+// Numeric columns a rule or formula can draw from: summed data + conditional metrics + calculated columns
 function calcSourceNames() {
+  const condNames = readCondMetrics().map((c) => c.name).filter(Boolean);
   const derivedNames = readDerived().map((d) => d.name).filter(Boolean);
-  return [...checkedValues('metric'), ...derivedNames];
+  return [...checkedValues('metric'), ...condNames, ...derivedNames];
 }
 
 function outputColumnNames() {
+  const condNames = readCondMetrics().map((c) => c.name).filter(Boolean);
   const derivedNames = readDerived().map((d) => d.name).filter(Boolean);
   const labelNames = readLabels().map((l) => l.name).filter(Boolean);
-  return [...checkedValues('groupby'), ...checkedValues('metric'), ...derivedNames, ...labelNames];
+  return [...checkedValues('groupby'), ...checkedValues('metric'), ...condNames, ...derivedNames, ...labelNames];
 }
 
 /* ---------- pivot (cross-tab) ---------- */
@@ -596,7 +716,7 @@ function applyPivot(rows, cols, groupBy) {
   if (!cfg.enabled) return { rows, cols };
   if (!cfg.colDim || !cfg.valueCol) {
     return {
-      error: 'Cross-tab (section 7) is enabled but needs both "Turn into columns" and ' +
+      error: 'Cross-tab (section 8) is enabled but needs both "Turn into columns" and ' +
         '"Values" selected — pick both, or turn the checkbox off.',
     };
   }
@@ -604,7 +724,7 @@ function applyPivot(rows, cols, groupBy) {
     return { error: 'Cross-tab: "Turn into columns" and "Values" must be different columns.' };
   }
   if (!cols.includes(cfg.colDim) || !cols.includes(cfg.valueCol)) {
-    return { error: 'Cross-tab: the selected column(s) are not part of this result — re-check section 7.' };
+    return { error: 'Cross-tab: the selected column(s) are not part of this result — re-check section 8.' };
   }
 
   const rowKeyCols = groupBy.filter((c) => c !== cfg.colDim);
@@ -671,6 +791,12 @@ function updateSelectors() {
   for (const sel of document.querySelectorAll('.dInsert')) {
     fillSelect(sel, metrics, 'Insert column…');
   }
+  for (const sel of document.querySelectorAll('.cmValueCol')) {
+    fillSelect(sel, numericColumns);
+  }
+  for (const sel of document.querySelectorAll('.ccCol')) {
+    fillSelect(sel, columns);
+  }
   const sources = calcSourceNames();
   for (const sel of document.querySelectorAll('.lrCol')) {
     fillSelect(sel, sources);
@@ -713,15 +839,17 @@ function refreshChipBar() {
   const chipBar = document.getElementById('chipBar');
   const chipRow = document.getElementById('chipRow');
   const metrics = checkedValues('metric');
+  const condNames = readCondMetrics().map((c) => c.name).filter(Boolean);
   const calcNames = readDerived().map((d) => d.name).filter(Boolean);
   chipRow.innerHTML = '';
-  if (metrics.length === 0 && calcNames.length === 0) {
+  if (metrics.length === 0 && condNames.length === 0 && calcNames.length === 0) {
     chipBar.hidden = true;
     return;
   }
   chipBar.hidden = false;
   for (const { name, cls } of [
     ...metrics.map((m) => ({ name: m, cls: '' })),
+    ...condNames.map((c) => ({ name: c, cls: 'calc' })),
     ...calcNames.map((c) => ({ name: c, cls: 'calc' })),
   ]) {
     const chip = document.createElement('span');
@@ -794,7 +922,7 @@ function applyCsmPresetIfPossible() {
   const [sku, store, product, ordered, shipped] = found;
 
   // No default filters: the prefill only sets up grouping and %OOS so every group shows;
-  // add conditions in section 6 (e.g. %OOS >= 100) or load a saved preset for the delist list.
+  // add conditions in section 7 (e.g. %OOS >= 100) or load a saved preset for the delist list.
   applyConfig({
     groupBy: [sku, store, product],
     metrics: [found[3], found[4], found[5]],
@@ -804,7 +932,7 @@ function applyCsmPresetIfPossible() {
     sortCol: ordered,
     sortDir: 'desc',
   });
-  setStatus('CSM export detected — pre-filled grouping and %OOS with no filters (add conditions in section 6, e.g. %OOS >= 100 for delist candidates, or load a saved preset).');
+  setStatus('CSM export detected — pre-filled grouping and %OOS with no filters (add conditions in section 7, e.g. %OOS >= 100 for delist candidates, or load a saved preset).');
 }
 
 /* ---------- aggregation choice & KPI tiles (core) ---------- */
@@ -1141,12 +1269,13 @@ function buildJoinColsBox(selected) {
 
 // Makes every lookup column pickable as a group-by / metric / formula source column, replacing
 // whatever lookup columns were registered from a previous file/sheet. buildColumnPickers() wipes
-// group-by/metric checkboxes AND the calculated-column / category-column / filter lists (it always
-// has, even on a plain main-sheet reload) — but here the column set only ever grows, so wiping the
-// user's section 3/4/5 config would be a regression, not a consequence of columns actually
-// changing shape. Capture everything beforehand and restore it after, mirroring applyConfig()'s
-// own restore ordering (groupby/metric -> derived -> labels -> filters -> sort, with
-// updateSelectors() between each so later rows can see earlier ones' names).
+// group-by/metric checkboxes AND the conditional-metric / calculated-column / category-column /
+// filter lists (it always has, even on a plain main-sheet reload) — but here the column set only
+// ever grows, so wiping the user's section 4/5/6/7 config would be a regression, not a
+// consequence of columns actually changing shape. Capture everything beforehand and restore it
+// after, mirroring applyConfig()'s own restore ordering (groupby/metric -> conditional metrics ->
+// derived -> labels -> filters -> sort, with updateSelectors() between each so later rows can see
+// earlier ones' names).
 function registerLookupColumnsIntoGlobal() {
   columns = columns.filter((c) => !addedLookupCols.includes(c));
   numericColumns = numericColumns.filter((c) => !addedLookupCols.includes(c));
@@ -1158,6 +1287,7 @@ function registerLookupColumnsIntoGlobal() {
 
   const gb = checkedValues('groupby');
   const mt = checkedValues('metric');
+  const condMetrics = readCondMetrics();
   const derived = readDerived();
   const labels = readLabels();
   const filters = readFilters();
@@ -1168,6 +1298,8 @@ function registerLookupColumnsIntoGlobal() {
   buildColumnPickers();
   setChecked('groupby', gb);
   setChecked('metric', mt);
+  updateSelectors();
+  for (const c of condMetrics) addCondMetricBlock(c);
   updateSelectors();
   for (const d of derived) addDerivedRow(d);
   updateSelectors();
@@ -1195,7 +1327,7 @@ function readJoinConfig() {
 // case it stashes the intent in `pendingJoinConfig`, which loadLookupSheet() consults once a
 // matching lookup file/sheet is actually loaded. A config with no meaningful join content (e.g.
 // `{}` from a legacy preset, or the blank join object every preset now carries via
-// collectConfig() even when the user never touched section 6) must NOT be stashed — otherwise it
+// collectConfig() even when the user never touched section 7) must NOT be stashed — otherwise it
 // would later stomp a join the user configures manually after this call (see applyConfig(), which
 // runs this before the rest of the preset/auto-preset restore).
 function applyJoinConfigToUI(cfg) {
@@ -1581,6 +1713,7 @@ function collectConfig() {
     join: readJoinConfig(),
     groupBy: checkedValues('groupby'),
     metrics: checkedValues('metric'),
+    condMetrics: readCondMetrics(),
     derived: readDerived(),
     labels: readLabels(),
     filters: readFilters(),
@@ -1612,10 +1745,13 @@ function applyConfig(cfg) {
   for (const sel of document.querySelectorAll('.aggSel')) {
     sel.value = (cfg.aggs && cfg.aggs[sel.dataset.col]) || 'sum';
   }
+  condMetricList.innerHTML = '';
   derivedList.innerHTML = '';
   labelList.innerHTML = '';
   filterList.innerHTML = '';
   document.getElementById('formatList').innerHTML = '';
+  updateSelectors();
+  for (const c of cfg.condMetrics || []) addCondMetricBlock(c);
   updateSelectors();
   for (const d of cfg.derived || []) addDerivedRow(d);
   updateSelectors();
@@ -1771,6 +1907,7 @@ function runAnalysis() {
   const sourceRows = applyJoin(sheetRows);
   const groupBy = checkedValues('groupby');
   const metrics = checkedValues('metric');
+  const condMetrics = readCondMetrics();
   const derived = readDerived();
   const labels = readLabels().filter((l) => l.name || l.rules.some((r) => r.value !== ''));
 
@@ -1779,12 +1916,32 @@ function runAnalysis() {
     return;
   }
 
-  // Compile calculated columns; each may reference data columns and earlier calculated columns
+  for (const cm of condMetrics) {
+    if (!cm.name) {
+      setStatus('Every conditional metric needs a name (section 4).', 'error');
+      return;
+    }
+    if (cm.type !== 'count' && !cm.valueCol) {
+      setStatus(`Conditional metric "${cm.name}" needs a value column (section 4) — only Count can be left without one.`, 'error');
+      return;
+    }
+    const activeConds = cm.conditions.filter((c) => c.col && (c.value !== '' || BLANK_OPS.includes(c.op)));
+    if (activeConds.length === 0) {
+      setStatus(`Conditional metric "${cm.name}" needs at least one condition with a value filled in (section 4) — with none active it would just duplicate an unconditional metric.`, 'error');
+      return;
+    }
+  }
+  const condAggMap = {};
+  for (const cm of condMetrics) condAggMap[cm.name] = cm.type;
+
+  // Compile calculated columns; each may reference data columns, conditional metrics, and
+  // earlier calculated columns
   const compiled = [];
   const available = new Set(metrics);
+  for (const cm of condMetrics) available.add(cm.name);
   for (const d of derived) {
     if (!d.name) {
-      setStatus('Every calculated column needs a name (section 4).', 'error');
+      setStatus('Every calculated column needs a name (section 5).', 'error');
       return;
     }
     let c;
@@ -1809,7 +1966,7 @@ function runAnalysis() {
 
   for (const l of labels) {
     if (!l.name) {
-      setStatus('Every category column needs a name (section 5).', 'error');
+      setStatus('Every category column needs a name (section 6).', 'error');
       return;
     }
     for (const r of l.rules) {
@@ -1833,10 +1990,19 @@ function runAnalysis() {
       const entry = {};
       for (const c of groupBy) entry[c] = bucketValue(c, row[c]);
       for (const m of metrics) entry[m] = [];
+      for (const cm of condMetrics) entry[cm.name] = [];
       grouped.set(key, entry);
     }
     const entry = grouped.get(key);
     for (const m of metrics) entry[m].push(row[m]);
+    for (const cm of condMetrics) {
+      // Mirrors the filter-row "active condition" rule at readFilters()'s call site: a
+      // condition with no column picked, or a blank value on a non-blank op, is ignored
+      // rather than failing every row. A row must pass every ACTIVE condition to count.
+      const activeConds = cm.conditions.filter((c) => c.col && (c.value !== '' || BLANK_OPS.includes(c.op)));
+      const passes = activeConds.every((c) => matches(row[c.col], c.op, c.value));
+      if (passes) entry[cm.name].push(cm.type === 'count' ? 1 : row[cm.valueCol]);
+    }
   }
 
   let out = [...grouped.values()];
@@ -1848,6 +2014,10 @@ function runAnalysis() {
       // never reaches the preview table or the downloaded .xlsx. 10dp keeps genuine precision —
       // this is not the 2dp rounding used by the (separately scoped) calculated-column pipeline.
       entry[m] = typeof v === 'number' ? Math.round(v * 1e10) / 1e10 : v;
+    }
+    for (const cm of condMetrics) {
+      const v = aggregateValues(entry[cm.name], cm.type || 'sum');
+      entry[cm.name] = typeof v === 'number' ? Math.round(v * 1e10) / 1e10 : v;
     }
   }
   for (const entry of out) {
@@ -1898,11 +2068,16 @@ function runAnalysis() {
   resultRows = out;
   outputCols = piv.cols;
   resultSummaryRows = [];
+  // Widen metrics/aggMap with the conditional metrics so computeSummaryRow treats a sum/count
+  // conditional metric exactly like a regular sum/count metric (summed across output rows) and
+  // leaves avg/min/max/countDistinct conditional metrics blank — no other change needed there.
+  const summaryMetrics = [...metrics, ...condMetrics.map((cm) => cm.name)];
+  const summaryAggMap = { ...aggMap, ...condAggMap };
   if (document.getElementById('totalRowEnabled').checked) {
-    resultSummaryRows.push(computeSummaryRow('Total', out, outputCols, groupBy, metrics, aggMap, compiled));
+    resultSummaryRows.push(computeSummaryRow('Total', out, outputCols, groupBy, summaryMetrics, summaryAggMap, compiled));
   }
   if (document.getElementById('avgRowEnabled').checked) {
-    resultSummaryRows.push(computeSummaryRow('Average', out, outputCols, groupBy, metrics, aggMap, compiled));
+    resultSummaryRows.push(computeSummaryRow('Average', out, outputCols, groupBy, summaryMetrics, summaryAggMap, compiled));
   }
   resultSummaryRows = resultSummaryRows.filter(Boolean);
   downloadBtn.hidden = out.length === 0;
@@ -2004,7 +2179,7 @@ function matches(cell, op, rawValue) {
 
 function renderPreview(rows) {
   if (rows.length === 0) {
-    previewNote.textContent = 'No groups match the conditions — loosen the filters in section 6.';
+    previewNote.textContent = 'No groups match the conditions — loosen the filters in section 7.';
     return;
   }
   const table = document.createElement('table');
@@ -2117,6 +2292,7 @@ joinRightKeySelect.addEventListener('change', () => { pendingJoinConfig = null; 
 presetSelect.addEventListener('change', loadSelectedPreset);
 savePresetBtn.addEventListener('click', savePreset);
 deletePresetBtn.addEventListener('click', deleteSelectedPreset);
+addCondMetricBtn.addEventListener('click', () => { addCondMetricBlock(); updateSelectors(); });
 addDerivedBtn.addEventListener('click', () => { addDerivedRow(); updateSelectors(); });
 addLabelBtn.addEventListener('click', () => { addLabelBlock(); updateSelectors(); });
 addFilterBtn.addEventListener('click', () => { addFilterRow(); updateSelectors(); });

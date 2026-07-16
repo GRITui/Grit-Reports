@@ -194,6 +194,8 @@
           <p>A formula can use any column checked in <em>Data for calculation</em> and any calculated column defined <em>above</em> it. Division by zero gives 0. Drag a column chip into the formula (or click it) instead of typing.</p>
           <h3>Aggregation per column</h3>
           <p>The small dropdown next to each data column picks how rows combine per group: <code>sum</code>, <code>count</code>, <code>avg</code>, <code>min</code>, <code>max</code>. Blank cells are excluded from avg/min/max.</p>
+          <h3>Conditional aggregation (SUMIF / COUNTIF)</h3>
+          <p>Section 4 builds one new column per block: choose a type (sum, count, count distinct, average, min, max), a value column (required for every type except Count &mdash; the dropdown starts blank so you must pick one), and one or more &ldquo;and&rdquo; conditions on any raw column &mdash; a row only counts toward the block's total when every condition passes, like Excel's SUMIFS/COUNTIFS. At least one condition must have a value filled in (or use &ldquo;is blank&rdquo;/&ldquo;is not blank&rdquo;, which need no value); a block with no active condition would just duplicate an unconditional metric, so Run Analysis rejects it. The result column works anywhere a data column does: calculated-column formulas, category rules, filters, sorting, cross-tab, and charts.</p>
           <h3>Date buckets</h3>
           <p>Check a date column in <em>Group rows by</em> and pick a granularity: day &rarr; <code>2026-07-14</code>, week &rarr; <code>2026-W28</code> (ISO week), month &rarr; <code>2026-07</code>. Works with real Excel dates and date text.</p>
         </div>
@@ -261,8 +263,14 @@
         <div class="colList" id="metricsBox"></div>
       </div>
 
+      <div class="box span2" id="condMetricsBox">
+        <h2>4. Conditional aggregation (SUMIF / COUNTIF) <small>&mdash; sum/count/etc. a raw column only for rows matching one or more conditions, e.g. Central Sales = SUM(Sales) where Region = Central</small></h2>
+        <div id="condMetricList"></div>
+        <button class="small" id="addCondMetricBtn" type="button">+ Add conditional metric</button>
+      </div>
+
       <div class="box">
-        <h2>4. Calculated columns <small>&mdash; write formulas over the data columns, e.g. ([Qty Ordered] &minus; [Qty Shipped]) / [Qty Ordered] * 100</small></h2>
+        <h2>5. Calculated columns <small>&mdash; write formulas over the data columns, e.g. ([Qty Ordered] &minus; [Qty Shipped]) / [Qty Ordered] * 100</small></h2>
         <div id="chipBar" hidden>
           <span class="muted">Drag a column into a formula (or click to insert):</span>
           <div id="chipRow"></div>
@@ -272,13 +280,13 @@
       </div>
 
       <div class="box">
-        <h2>5. Category columns <small>&mdash; label each group from its numbers; first matching rule wins</small></h2>
+        <h2>6. Category columns <small>&mdash; label each group from its numbers; first matching rule wins</small></h2>
         <div id="labelList"></div>
         <button class="small" id="addLabelBtn" type="button">+ Add category column</button>
       </div>
 
       <div class="box span2">
-        <h2>6. Filter &amp; sort the result <small>&mdash; keep only groups matching every condition</small></h2>
+        <h2>7. Filter &amp; sort the result <small>&mdash; keep only groups matching every condition</small></h2>
         <div id="filterList"></div>
         <button class="small" id="addFilterBtn" type="button">+ Add condition</button>
         <div class="configRow" style="margin-top:12px">
@@ -300,7 +308,7 @@
       </div>
 
       <div class="box span2" id="pivotBox">
-        <h2>7. Cross-tab (pivot) <small>&mdash; turn one result column's values into separate columns (cap 40 distinct values)</small></h2>
+        <h2>8. Cross-tab (pivot) <small>&mdash; turn one result column's values into separate columns (cap 40 distinct values)</small></h2>
         <div class="configRow">
           <label><input type="checkbox" id="pivotEnabled" /> Enable cross-tab</label>
         </div>
@@ -313,7 +321,7 @@
       </div>
 
       <div class="box span2" id="vizBox">
-        <h2>8. Charts &amp; formatting <small>&mdash; visualize the result and color-scale a numeric column in the preview (preview only, not saved to the .xlsx)</small></h2>
+        <h2>9. Charts &amp; formatting <small>&mdash; visualize the result and color-scale a numeric column in the preview (preview only, not saved to the .xlsx)</small></h2>
         <div class="configRow">
           <label for="vizChartType">Chart:</label>
           <select id="vizChartType">
