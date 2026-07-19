@@ -41,3 +41,9 @@ All parsing and computation happen client-side (SheetJS + Chart.js are bundled l
 | `app.js` | All application logic |
 | `xlsx.full.min.js` | Bundled SheetJS (Apache-2.0) |
 | `chart.umd.js` | Bundled Chart.js v4 (MIT) |
+
+## License
+
+Dual-licensed: **AGPLv3** for open-source/non-commercial use, or a **Commercial
+License** for proprietary use. See the [root README](../README.md#licensing) and
+[`LICENSE`](../LICENSE) / [`COMMERCIAL-LICENSE.md`](../COMMERCIAL-LICENSE.md).
