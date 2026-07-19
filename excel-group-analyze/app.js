@@ -1,5 +1,19 @@
 'use strict';
 
+/*
+ * Grit Reports — browser-based spreadsheet analysis engine.
+ * Copyright (C) 2026 [LICENSOR LEGAL NAME]
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version. This program is distributed WITHOUT ANY WARRANTY. See the GNU
+ * AGPL v3 (../LICENSE) for details.
+ *
+ * A commercial license is available for proprietary/closed-source use — see
+ * COMMERCIAL-LICENSE.md in the repository root.
+ */
+
 const PREVIEW_LIMIT = 100;
 const FILTER_OPS = ['>=', '>', '=', '!=', '<', '<=', 'contains', 'is blank', 'is not blank'];
 const BLANK_OPS = ['is blank', 'is not blank'];
