@@ -31,7 +31,7 @@ code privately, without the copyleft and network-source obligations of the
 AGPLv3. See [`COMMERCIAL-LICENSE.md`](./COMMERCIAL-LICENSE.md) for the agreement
 template.
 
-👉 **[Purchase a Commercial License](https://REPLACE-WITH-YOUR-CHECKOUT-LINK)**
+👉 **[Purchase a Commercial License](https://buy.stripe.com/28EcN69Sr7YB1g56oScjS00)**
 
 > Not sure which you need? If your project is open source under the AGPLv3, the
 > free license is enough. If it's proprietary/closed-source, or you can't meet
