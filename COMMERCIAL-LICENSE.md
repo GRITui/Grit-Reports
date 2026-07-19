@@ -1,13 +1,14 @@
 # Grit Reports — Commercial License Agreement (TEMPLATE)
 
-> **⚠️ DRAFT — NOT LEGAL ADVICE.** This template is a starting point only. Before
-> you sell a single license, have a qualified attorney in your jurisdiction review
-> and adapt it. Fill in every `[BRACKETED]` field. Delete this notice before use.
+> **⚠️ DRAFT — NOT LEGAL ADVICE.** The party details are filled in, but this is a
+> generic template. Before you sell a single license, have a qualified attorney in
+> Thailand review and adapt it to your situation. Remove this notice only once you
+> are satisfied it is final.
 
 ---
 
 This Commercial License Agreement (the "Agreement") is entered into by and
-between **[LICENSOR LEGAL NAME]** ("Licensor") and the purchasing individual or
+between **Krit Thongsri** ("Licensor") and the purchasing individual or
 entity ("Licensee") identified in the associated order or receipt.
 
 By purchasing, downloading under this Agreement, or using the Software under
@@ -41,7 +42,7 @@ covered by this Agreement.
 
 Unless otherwise stated in the order, this license covers:
 
-- Use by a single [organization / team / developer seat — CHOOSE ONE].
+- Use by a single organization (all of that organization's internal developers).
 - An unlimited number of end-user-facing deployments of Licensee's products that
   embed the Software.
 
@@ -51,14 +52,14 @@ as embedded within Licensee's own product.
 
 ## 5. Fees
 
-The license fee is a **one-time payment of [PRICE]** as stated at checkout,
+The license fee is a **one-time payment of USD $149** as stated at checkout,
 unless an order specifies a recurring or maintenance fee. All fees are
 non-refundable except as required by law or by the checkout provider's policy.
 
 ## 6. Updates and Support
 
 The Software is provided **"AS IS."** Licensor may, but is not obligated to,
-provide updates. Technical support is **[NOT INCLUDED / included as follows: …]**.
+provide updates. Technical support is **NOT INCLUDED**.
 
 ## 7. Warranty Disclaimer
 
@@ -92,10 +93,10 @@ AGPLv3 if it complies with those terms).
 
 ## 11. Governing Law
 
-This Agreement is governed by the laws of **[JURISDICTION]**, without regard to
+This Agreement is governed by the laws of **Thailand**, without regard to
 conflict-of-laws principles.
 
 ---
 
-**Licensor:** [LEGAL NAME] · [CONTACT EMAIL]
+**Licensor:** Krit Thongsri · krit.krit.th@gmail.com
 **Effective date:** date of purchase as shown on the order/receipt.
